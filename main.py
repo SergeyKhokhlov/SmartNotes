@@ -512,4 +512,4 @@ def query_handler(call):
 
 
 db_session.global_init("db/database.db")
-bot.polling(none_stop=True)
+bot.polling()
