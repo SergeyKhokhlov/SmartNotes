@@ -17,5 +17,5 @@ TG_API_URL = None
 # Sentry
 # добавить свой DSN из https://sentry.io
 sentry_sdk.init(
-    dsn="dsn=https://4dd83f6842b04b4db2217119886364a6@o489213.ingest.sentry.io/5551048",
+    dsn="https://4dd83f6842b04b4db2217119886364a6@o489213.ingest.sentry.io/5551048",
 )
