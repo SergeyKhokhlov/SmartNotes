@@ -511,5 +511,5 @@ def query_handler(call):
                 print_folder(call.message)
 
 
-db_session.global_init("db/database.db")
+db_session.global_init("/home/tele/SmartNotes/db/database.db")
 bot.polling()
