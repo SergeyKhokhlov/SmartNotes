@@ -89,7 +89,7 @@ def dropper(message):
         except Exception:
             pass
         bot.send_message(message.chat.id, "Вы перешли в папку", reply_markup=keyboard_folder)
-        send = bot.send_message(message.chat.id, f"*{message.text}*", parse_mode="Markdown", reply_markup=inline_kb)
+        send = bot.send_message(message.chat.id, "*" + str(message.text) + "*", parse_mode="Markdown", reply_markup=inline_kb)
         bot.register_next_step_handler(send, NotesOperations)
 
 
@@ -425,7 +425,7 @@ def print_folder(message):
     for i in all_folders:
         if i.in_folder == "now" and i.user_id == message.chat.id:
             bot.send_message(message.chat.id, "Вы в папке", reply_markup=keyboard_folder)
-            send = bot.send_message(message.chat.id, f"*{i.names_folders}*", parse_mode="Markdown", reply_markup=inline_kb)
+            send = bot.send_message(message.chat.id, "*" + i.names_folders + "*", parse_mode="Markdown", reply_markup=inline_kb)
             bot.register_next_step_handler(send, NotesOperations)
 
 def addTitleNote(message):
