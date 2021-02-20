@@ -1,5 +1,5 @@
 import telebot
-from data import db_session, folders, notes, users
+from data import db_session, folders, notes, users, music
 
 TOKEN = "1363841624:AAEbh2XaTpf0wVK6nJaDTY6mxNs4gtpjTBY"
 bot = telebot.TeleBot(TOKEN)
@@ -8,18 +8,17 @@ keyboard1 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
+    keyboard1 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    sessions = db_session.create_session()
     try:
         sessions = db_session.create_session()
         all_folders = sessions.query(folders.Folder).all()
-        keyboard1 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         for i in all_folders:
             if i.user_id == message.from_user.id:
                 keyboard1.add(str(i.names_folders))
         keyboard1.add('Добавить Папку')
     except Exception:
-        keyboard1 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard1.add('Добавить Папку')
-    sessions = db_session.create_session()
     all_users = sessions.query(users.User).all()
     all_users_id = []
     if len(all_users) != 0:
@@ -29,9 +28,9 @@ def start_message(message):
         user = users.User(user_id=message.from_user.id)
         sessions.add(user)
         sessions.commit()
-    bot.send_message(message.chat.id, "Привет 👋\nЯ бот, который поможет вам хранить все ваши записи "
+    bot.send_message(message.chat.id, "Привет 👋\nЯ бот, который поможет вам хранить все ваши записи/музыку "
                                       "удобным способом! Вы можете добавлять папки и "
-                                      "хранить любые заметки в них 🙂",
+                                      "хранить любые заметки/музыку в них 🙂",
                      reply_markup=keyboard1)
 
 
@@ -84,7 +83,7 @@ def dropper(message):
                 if int(i.folder_id) == int(you_folder_id):
                     note_block = i
             for i in note_block.user_notes.split(";0;"):
-                  inline_kb.add(telebot.types.InlineKeyboardButton(i.split("25:07:..04")[0], callback_data='btn' + str(count_btn)))
+                  inline_kb.add(telebot.types.InlineKeyboardButton(i.split("25:07:..04")[0].split(';')[-1], callback_data='btn' + str(count_btn)))
                   count_btn += 1
         except Exception:
             pass
@@ -102,7 +101,7 @@ def addFolder(message):
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         for i in range(len(all_folders)):
             keyboard2.add(all_folders[i].names_folders)
-        keyboard2.add("Добавить Папку")
+        keyboard2.add('Добавить Папку')
         bot.send_message(message.chat.id, "Операция отменена", reply_markup=keyboard2)
     else:
         if type(message.text) is str:
@@ -116,7 +115,9 @@ def addFolder(message):
             if str(name_folder) in name_fs:
                 is_next = False
             if is_next:
-                folder = folders.Folder(user_id=message.from_user.id, names_folders=name_folder, in_folder='')
+                sessions = db_session.create_session()
+                folder = folders.Folder(user_id=message.from_user.id, names_folders=name_folder,
+                                        in_folder='')
                 sessions.add(folder)
                 sessions.commit()
                 all_folders = sessions.query(folders.Folder).filter(
@@ -130,14 +131,15 @@ def addFolder(message):
                 keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
                 for i in range(len(all_folders)):
                     keyboard2.add(all_folders[i].names_folders)
-                keyboard2.add("Добавить Папку")
-                bot.send_message(message.chat.id, "Папка успешно добавлена ✅",
-                                 reply_markup=keyboard2)
+                keyboard2.add('Добавить Папку')
+                send = bot.send_message(message.chat.id, "Папка успешно добавлена ✅",
+                                        reply_markup=keyboard2)
+                bot.register_next_step_handler(send, dropper)
             else:
                 keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
                 for i in name_fs:
                     keyboard2.add(i)
-                keyboard2.add("Добавить Папку")
+                keyboard2.add('Добавить Папку')
                 bot.send_message(message.chat.id, "Папка с таким названием уже существует",
                                  reply_markup=keyboard2)
         else:
@@ -149,10 +151,43 @@ def addFolder(message):
                 name_fs.append(str(i.names_folders))
             for i in name_fs:
                 keyboard2.add(i)
-            keyboard2.add("Добавить Папку")
+            keyboard2.add('Добавить Папку')
             send = bot.send_message(message.chat.id, "Не корректное имя папки ❌\nВведите название папки",
                              reply_markup=keyboard2)
             bot.register_next_step_handler(send, addFolder)
+
+
+def choose_type(message, title_note):
+    if message.text == "Текстовая":
+        keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        keyboard_cancler.add("Отменить")
+        send = bot.send_message(message.chat.id, "Теперь введите содержание заметки",
+                                reply_markup=keyboard_cancler)
+        bot.register_next_step_handler(send, addNote, title_note)
+    elif message.text == "Музыкальная":
+        sessions = db_session.create_session()
+        all_folders = sessions.query(
+            folders.Folder).all()  # нужно проверять folder id с id папки в которыю перешёл пользователь, а я спать 23:00 всё таки!
+        for i in all_folders:
+            if i.in_folder == "now" and i.user_id == message.from_user.id:
+                you_folder_id = i.id
+        all_notes = sessions.query(notes.Note).all()
+        note_block = None
+        for i in all_notes:
+            if i.user_id == message.from_user.id and i.folder_id == you_folder_id:
+                note_block = i
+        if ";-string-;" + str(title_note) not in note_block.user_notes.split("25:07:..04")\
+                and ";-music-;" + str(title_note) not in note_block.user_notes.split("25:07:..04"):
+            note_block.user_notes = note_block.user_notes + ";-music-;" + str(title_note) + "25:07:..04;0;"
+            sessions.commit()
+            bot.send_message(message.chat.id, "Запись успешно добавлена ✅")
+            print_folder(message)
+        else:
+            bot.send_message(message.chat.id, "Данная запись уже существует в этой папке ❌")
+            print_folder(message)
+    else:
+        send = bot.send_message(message.chat.id, "Вы что-то не то ввели")
+        bot.register_next_step_handler(send, choose_type, title_note)
 
 
 def NotesOperations(message):
@@ -185,9 +220,10 @@ def NotesOperations(message):
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         for i in range(len(all_folders)):
             keyboard2.add(all_folders[i].names_folders)
-        keyboard2.add("Добавить Папку")
-        bot.send_message(message.chat.id, "Папка успешно удалена ✅",
+        keyboard2.add('Добавить Папку')
+        send = bot.send_message(message.chat.id, "Папка успешно удалена ✅",
                          reply_markup=keyboard2)
+        bot.register_next_step_handler(send, dropper)
     elif message.text == "Переименовать Папку ✏️":
         keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard_cancler.add("Отменить")
@@ -200,16 +236,15 @@ def NotesOperations(message):
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         for i in range(len(all_folders)):
             keyboard2.add(all_folders[i].names_folders)
-        keyboard2.add("Добавить Папку")
-        bot.send_message(message.chat.id, "Операция выполнена",
+        keyboard2.add('Добавить Папку')
+        send = bot.send_message(message.chat.id, "Операция выполнена",
                          reply_markup=keyboard2)
-    elif message.text == "Изменить Запись ✏️" or message.text == "Вернуться ↩️" or message.text == "Удалить Запись 🗑":
+        bot.register_next_step_handler(send, dropper)
+    elif message.text == "Изменить Запись ✏️" or message.text == "Переименовать Запись ✏️" \
+            or message.text == "Вернуться ↩️" or message.text == "Удалить Запись 🗑" or \
+            message.text == "Добавить Аудиозапись 🔊" or message.text == "Удалить Аудиозапись 🔇":
         pass
     else:
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         keyboard_folder = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard_folder.add("Добавить Запись 📝")
         keyboard_folder.add("Переименовать Папку ✏️")
@@ -222,10 +257,6 @@ def NotesOperations(message):
 
 def renameFolder(message):
     if message.text == "Отменить":
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         send = bot.send_message(message.chat.id, "Операция отменена")
         bot.register_next_step_handler(send, dropper)
         print_folder(message)
@@ -238,19 +269,16 @@ def renameFolder(message):
         sessions = db_session.create_session()
         all_folders = sessions.query(folders.Folder).filter(
             folders.Folder.user_id == message.from_user.id).all()
-        all_notes = sessions.query(notes.Note).all()
         rename_folder = None
         for i in all_folders:
             if i.in_folder == "now" and i.user_id == message.from_user.id:
                 rename_folder = i
         rename_folder.names_folders = message.text
         sessions.commit()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         send = bot.send_message(message.chat.id, "Папка переименована ✅")
         bot.register_next_step_handler(send, dropper)
         print_folder(message)
+
 
 def goToTheNote(message, num_note):
     sessions = db_session.create_session()
@@ -269,19 +297,36 @@ def goToTheNote(message, num_note):
             right_note = i
     if right_note is not None:
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        if right_note.split(";")[1] == "-music-":
+            keyboard2.add("Добавить Аудиозапись 🔊")
+            keyboard2.add("Удалить Аудиозапись 🔇")
         keyboard2.add("Удалить Запись 🗑")
-        keyboard2.add("Изменить Запись ✏️")
+        if right_note.split(";")[1] == "-music-":
+            keyboard2.add("Переименовать Запись ✏️")
+        else:
+            keyboard2.add("Изменить Запись ✏️")
         keyboard2.add("Вернуться ↩️")
-        send = bot.send_message(message.chat.id, "*" +
-                                right_note.split("25:07:..04")[0] + "*\n" +
-                                right_note.split("25:07:..04")[1], parse_mode="Markdown",
-                                reply_markup=keyboard2)
+        if right_note.split(";")[1] == "-music-":
+            send = bot.send_message(message.chat.id, "*" +
+                             right_note.split("25:07:..04")[0].split(";")[-1] + "*",
+                             parse_mode="Markdown",
+                             reply_markup=keyboard2)
+            try:
+                new_l = right_note.split("25:07:..04")[1].split("_-_")
+                while "" in new_l:
+                    new_l.remove("")
+                for i in new_l:
+                    send = bot.send_audio(message.chat.id, audio=i)
+            except Exception:
+                pass
+        else:
+            send = bot.send_message(message.chat.id, "*" +
+                                    right_note.split("25:07:..04")[0].split(";")[-1] + "*\n" +
+                                    right_note.split("25:07:..04")[1], parse_mode="Markdown",
+                                    reply_markup=keyboard2)
         bot.register_next_step_handler(send, inNote, right_note.split("25:07:..04")[0], num_note)
     else:
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
+        keyboard_folder = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard_folder.add("Добавить Запись 📝")
         keyboard_folder.add("Переименовать Папку ✏️")
         keyboard_folder.add("Удалить Папку 🗑")
@@ -293,10 +338,6 @@ def goToTheNote(message, num_note):
 
 def inNote(message, name_note, num_note):
     if message.text == "Вернуться ↩️":
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         send = bot.send_message(message.chat.id, "Операция выполнена")
         bot.register_next_step_handler(send, dropper)
         print_folder(message)
@@ -310,7 +351,7 @@ def inNote(message, name_note, num_note):
         #  Удаление записи
         del_note = None
         for i in all_notes:
-            if int(you_folder_id) == int(i.id):
+            if int(you_folder_id) == int(i.folder_id):
                 del_note = i
         new_note = []
         for i in del_note.user_notes.split(";0;"):
@@ -324,24 +365,183 @@ def inNote(message, name_note, num_note):
         keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard_cancler.add("Отменить")
         send = bot.send_message(message.chat.id, "Введите новое название записи (0 - неизменять)", reply_markup=keyboard_cancler)
-        bot.register_next_step_handler(send, editNoteTitle, name_note, num_note)
+        bot.register_next_step_handler(send, editNoteTitle, name_note, num_note, "str")
+    elif message.text == "Переименовать Запись ✏️":
+        keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        keyboard_cancler.add("Отменить")
+        send = bot.send_message(message.chat.id, "Введите новое название записи (0 - неизменять)",
+                                reply_markup=keyboard_cancler)
+        bot.register_next_step_handler(send, editNoteTitle, name_note, num_note, "other")
+    elif message.text == "Добавить Аудиозапись 🔊":
+        keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        keyboard_cancler.add("Отменить")
+        send = bot.send_message(message.chat.id, "Пришлите мне аудиофайл", reply_markup=keyboard_cancler)
+        bot.register_next_step_handler(send, addAudio, name_note, num_note)
+    elif message.text == "Удалить Аудиозапись 🔇":
+        sessions = db_session.create_session()
+        keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        all_music = sessions.query(music.Musics).all()
+        list_music = []
+        count = 1
+        # В list_notes сложить все заметки пользователя
+        all_notes = sessions.query(notes.Note).all()
+        note_block = None
+        all_folders = sessions.query(folders.Folder).all()
+        for i in all_folders:
+            if i.in_folder == "now" and i.user_id == message.chat.id:
+                you_folder_id = i.id
+        for i in all_notes:
+            if int(i.folder_id) == int(you_folder_id):
+                note_block = i
+        list_notes = note_block.user_notes.split("25:07:..04")[1].split("_-_")
+        while "" in list_notes:
+            list_notes.remove("")
+        for i in all_music:
+            if i.file_id + ";0;" in list_notes or i.file_id in list_notes:
+                list_music.append(str(count) + ". " + i.name)
+                count += 1
+        bot.send_message(message.chat.id, "*" + name_note.split(";")[-1] + "*" + "\n" +
+                         "\n".join(list_music),
+                         parse_mode="Markdown")
+        keyboard_cancler.add("Отменить")
+        send = bot.send_message(message.chat.id, "Введите номера аудиозаписей, которые хотите удалить (1) (1, 2, 3)",
+                                reply_markup=keyboard_cancler)
+        bot.register_next_step_handler(send, deleteAudio, name_note, num_note)
     else:
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard2.add("Удалить Запись 🗑")
         keyboard2.add("Изменить Запись ✏️")
-        keyboard2.add("Вернуться ⬅️")
-        send = bot.send_message(message.chat.id, "Вы что-то не то ввели",
-                                reply_markup=keyboard2)
-        bot.register_next_step_handler(send, inNote, name_note, num_note)
+        keyboard2.add("Вернуться ↩️")
+        bot.send_message(message.chat.id, "Вы что-то не то ввели",
+                         reply_markup=keyboard2)
+        goToTheNote(message, num_note)
 
 
-def editNoteTitle(message, name_note, num_note):
+def addAudio(message, name_note, num_note):
+    if message.text == "Отменить":
+        bot.send_message(message.chat.id, "Операция отменена")
+        keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        keyboard2.add("Удалить Запись 🗑")
+        keyboard2.add("Изменить Запись ✏️")
+        keyboard2.add("Вернуться ↩️")
+        goToTheNote(message, num_note)
+    else:
+        if message.content_type == "audio":
+            sessions = db_session.create_session()
+            all_notes = sessions.query(notes.Note).all()
+            all_folders = sessions.query(folders.Folder).all()
+            all_music = sessions.query(music.Musics).all()
+            musics = []
+            for i in all_music:
+                musics.append(i)
+            if message.audio.file_id not in musics:
+                mus = music.Musics(name=message.audio.performer + " - " + message.audio.title,
+                                   file_id=message.audio.file_id)
+                sessions.add(mus)
+                sessions.commit()
+            for i in all_folders:
+                if i.in_folder == "now" and i.user_id == message.from_user.id:
+                    you_folder_id = i.id
+            edit_note = None
+            for i in all_notes:
+                if int(you_folder_id) == int(i.folder_id):
+                    edit_note = i
+            new_note = []
+            counter = 0
+            for i in edit_note.user_notes.split(";0;"):
+                if i.split(":")[0] != name_note:
+                    if counter == int(num_note) - 1:
+                        temp = i.split("25:07:..04")
+                        temp[1] = temp[1] + "_-_" + message.audio.file_id
+                        new_note.append("25:07:..04".join(temp))
+                    else:
+                        new_note.append(i)
+                    counter += 1
+            edit_note.user_notes = str(';0;'.join(new_note))
+            sessions.commit()
+            keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard2.add("Добавить Аудиозапись 🔊")
+            keyboard2.add("Удалить Аудиозапись 🔇")
+            keyboard2.add("Удалить Запись 🗑")
+            keyboard2.add("Переименовать Запись ✏️")
+            keyboard2.add("Вернуться ↩️")
+            bot.send_message(message.chat.id, "Запись успешно добавлена ✅", reply_markup=keyboard2)
+
+            keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard2.add("Удалить Запись 🗑")
+            keyboard2.add("Изменить Запись ✏️")
+            keyboard2.add("Вернуться ↩️")
+            goToTheNote(message, num_note)
+        else:
+            keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard_cancler.add("Отменить")
+            send = bot.send_message(message.chat.id, "Не верный формат ❌",
+                                    reply_markup=keyboard_cancler)
+            bot.register_next_step_handler(send, addAudio, name_note, num_note)
+
+
+def deleteAudio(message, name_note, num_note):
+    if message.text == "Отменить":
+        bot.send_message(message.chat.id, "Операция отменена")
+        keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+        keyboard2.add("Удалить Запись 🗑")
+        keyboard2.add("Изменить Запись ✏️")
+        keyboard2.add("Вернуться ↩️")
+        goToTheNote(message, num_note)
+    else:
+        try:
+            sessions = db_session.create_session()
+            all_notes = sessions.query(notes.Note).all()
+            all_folders = sessions.query(folders.Folder).all()
+            for i in all_folders:
+                if i.in_folder == "now" and i.user_id == message.from_user.id:
+                    you_folder_id = i.id
+            edit_note = None
+            for i in all_notes:
+                if int(you_folder_id) == int(i.folder_id):
+                    edit_note = i
+            new_note = []
+            counter = 0
+            for i in edit_note.user_notes.split(";0;"):
+                if i.split(":")[0] != name_note:
+                    if counter == int(num_note) - 1:
+                        temp = i.split("25:07:..04")
+                        new_list = temp[1].split("_-_")
+                        while "" in new_list:
+                            new_list.remove("")
+                        if len(message.text) == 1:
+                            new_list.remove(new_list[int(message.text) - 1])
+                        else:
+                            counter = 1
+                            for i in message.text.split(", "):
+                                new_list.remove(new_list[int(i) - counter])
+                                counter += 1
+                        new_note.append("_-_".join(new_list))
+                    else:
+                        new_note.append(i)
+                    counter += 1
+            edit_note.user_notes = temp[0] + "25:07:..04_-_" + str(';0;'.join(new_note))
+            sessions.commit()
+            keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard2.add("Удалить Запись 🗑")
+            keyboard2.add("Изменить Запись ✏️")
+            keyboard2.add("Вернуться ↩️")
+            goToTheNote(message, num_note)
+
+        except Exception:
+            keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard_cancler.add("Отменить")
+            send = bot.send_message(message.chat.id, "Не верный формат ❌",
+                                    reply_markup=keyboard_cancler)
+            bot.register_next_step_handler(send, deleteAudio, name_note, num_note)
+
+
+def editNoteTitle(message, name_note, num_note, type_note):
     if message.text == "Отменить":
         keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
         keyboard2.add("Удалить Запись 🗑")
         keyboard2.add("Изменить Запись ✏️")
         keyboard2.add("Вернуться ↩️")
-        send = bot.send_message(message.chat.id, "Операция отменена", reply_markup=keyboard2)
         goToTheNote(message, num_note)
     elif type(message.text) is not str:
         keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -350,8 +550,40 @@ def editNoteTitle(message, name_note, num_note):
         bot.register_next_step_handler(send, editNoteTitle, name_note, num_note)
     else:
         new_title_note = message.text
-        send = bot.send_message(message.chat.id, "Введите новое содержание заметки (0 - неизменять)")
-        bot.register_next_step_handler(send, editNoteBody, name_note, num_note, new_title_note)
+        if type_note == "str":
+            send = bot.send_message(message.chat.id, "Введите новое содержание заметки (0 - неизменять)")
+            bot.register_next_step_handler(send, editNoteBody, name_note, num_note, new_title_note)
+        else:
+            sessions = db_session.create_session()
+            all_notes = sessions.query(notes.Note).all()
+            all_folders = sessions.query(folders.Folder).all()
+            for i in all_folders:
+                if i.in_folder == "now" and i.user_id == message.from_user.id:
+                    you_folder_id = i.id
+            edit_note = None
+            for i in all_notes:
+                if int(you_folder_id) == int(i.folder_id):
+                    edit_note = i
+            new_note = []
+            counter = 0
+            for i in edit_note.user_notes.split(";0;"):
+                if i.split(":")[0] != name_note:
+                    if counter == int(num_note) - 1:
+                        temp = i.split("25:07:..04")
+                        if str(new_title_note) != "0":
+                            temp[0] = ";-music-;" + new_title_note
+                        new_note.append("25:07:..04".join(temp))
+                    else:
+                        new_note.append(i)
+                    counter += 1
+            edit_note.user_notes = str(';0;'.join(new_note))
+            sessions.commit()
+            keyboard2 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard2.add("Удалить Запись 🗑")
+            keyboard2.add("Изменить Запись ✏️")
+            keyboard2.add("Вернуться ↩️")
+            bot.send_message(message.chat.id, "Заметка была переименована ✅", reply_markup=keyboard2)
+            goToTheNote(message, num_note)
 
 
 def editNoteBody(message, name_note, num_note, new_title_note):
@@ -360,7 +592,7 @@ def editNoteBody(message, name_note, num_note, new_title_note):
         keyboard2.add("Удалить Запись 🗑")
         keyboard2.add("Изменить Запись ✏️")
         keyboard2.add("Вернуться ↩️")
-        send = bot.send_message(message.chat.id, "Операция отменена", reply_markup=keyboard2)
+        bot.send_message(message.chat.id, "Операция отменена", reply_markup=keyboard2)
         goToTheNote(message, num_note)
     elif type(message.text) is not str:
         keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -376,7 +608,7 @@ def editNoteBody(message, name_note, num_note, new_title_note):
                 you_folder_id = i.id
         edit_note = None
         for i in all_notes:
-            if int(you_folder_id) == int(i.id):
+            if int(you_folder_id) == int(i.folder_id):
                 edit_note = i
         new_note = []
         counter = 0
@@ -401,6 +633,7 @@ def editNoteBody(message, name_note, num_note, new_title_note):
         bot.send_message(message.chat.id, "Заметка была изменена ✅", reply_markup=keyboard2)
         goToTheNote(message, num_note)
 
+
 def print_folder(message):
     sessions = db_session.create_session()
     all_notes = sessions.query(notes.Note).all()
@@ -420,7 +653,7 @@ def print_folder(message):
         if int(i.folder_id) == int(you_folder_id):
             note_block = i
     for i in note_block.user_notes.split(";0;"):
-          inline_kb.add(telebot.types.InlineKeyboardButton(i.split("25:07:..04")[0], callback_data='btn' + str(count_btn)))
+          inline_kb.add(telebot.types.InlineKeyboardButton(i.split("25:07:..04")[0].split(';')[-1], callback_data='btn' + str(count_btn)))
           count_btn += 1
     for i in all_folders:
         if i.in_folder == "now" and i.user_id == message.chat.id:
@@ -428,26 +661,19 @@ def print_folder(message):
             send = bot.send_message(message.chat.id, "*" + i.names_folders + "*", parse_mode="Markdown", reply_markup=inline_kb)
             bot.register_next_step_handler(send, NotesOperations)
 
+
 def addTitleNote(message):
     if message.text == "Отменить":
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         bot.send_message(message.chat.id, "Операция отменена")
         print_folder(message)
     else:
         if type(message.text) is str:
             keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+            keyboard_cancler.add("Текстовая", "Музыкальная")
             keyboard_cancler.add("Отменить")
-            send = bot.send_message(message.chat.id, "Теперь введите содержание заметки",
-                                    reply_markup=keyboard_cancler)
-            bot.register_next_step_handler(send, addNote, message.text)
+            send = bot.send_message(message.chat.id, "Выберите тип записи", reply_markup=keyboard_cancler)
+            bot.register_next_step_handler(send, choose_type, message.text)
         else:
-            sessions = db_session.create_session()
-            all_folders = sessions.query(folders.Folder).filter(
-                folders.Folder.user_id == message.from_user.id and message.text ==
-                folders.Folder.names_folders).all()
             keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
             keyboard_cancler.add("Отменить")
             send = bot.send_message(message.chat.id, "Не корректное название заметки ❌\nВведите название записи",
@@ -457,10 +683,6 @@ def addTitleNote(message):
 
 def addNote(message, title_note):
     if message.text == "Отменить":
-        sessions = db_session.create_session()
-        all_folders = sessions.query(folders.Folder).filter(
-            folders.Folder.user_id == message.from_user.id and message.text ==
-            folders.Folder.names_folders).all()
         bot.send_message(message.chat.id, "Операция отменена")
         print_folder(message)
     else:
@@ -474,12 +696,12 @@ def addNote(message, title_note):
                     you_folder_id = i.id
             all_notes = sessions.query(notes.Note).all()
             note_block = None
-            all_notes_only_user = []
             for i in all_notes:
                 if i.user_id == message.from_user.id and i.folder_id == you_folder_id:
                     note_block = i
-            if str(title_note) + "25:07:..04" + str(note) not in note_block.user_notes.split(";0;"):
-                note_block.user_notes = note_block.user_notes + str(title_note) + "25:07:..04" + str(note) + ";0;"
+            if ";-string-;" + str(title_note) not in note_block.user_notes.split("25:07:..04")\
+                    and ";-music-;" + str(title_note) not in note_block.user_notes.split("25:07:..04"):
+                note_block.user_notes = note_block.user_notes + ";-string-;" + str(title_note) + "25:07:..04" + str(note) + ";0;"
                 sessions.commit()
                 bot.send_message(message.chat.id, "Запись успешно добавлена ✅")
                 print_folder(message)
@@ -487,10 +709,6 @@ def addNote(message, title_note):
                 bot.send_message(message.chat.id, "Данная запись уже существует в этой папке ❌")
                 print_folder(message)
         else:
-            sessions = db_session.create_session()
-            all_folders = sessions.query(folders.Folder).filter(
-                folders.Folder.user_id == message.from_user.id and message.text ==
-                folders.Folder.names_folders).all()
             keyboard_cancler = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
             keyboard_cancler.add("Отменить")
             send = bot.send_message(message.chat.id, "Не корректное содержание заметки ❌\nВведите содержание записи",
@@ -512,4 +730,5 @@ def query_handler(call):
 
 
 db_session.global_init("/home/tele/SmartNotes/db/database.db")
+#db_session.global_init("db/database.db")
 bot.polling()
