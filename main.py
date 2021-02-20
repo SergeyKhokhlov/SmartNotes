@@ -1,8 +1,8 @@
 import telebot
 from data import db_session, folders, notes, users, music
 
-TOKEN = "1363841624:AAEsC-fHePzz1dPaLAZS6ntWLky_wf9mg-T"
-bot = telebot.TeleBot(TOKEN[:-1] + "I")
+TOKEN = "1363841624:AAEsC-fHePzz1dPaLAZS6ntWLky_wf9mg-I"
+bot = telebot.TeleBot(TOKEN)
 keyboard1 = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
 
 
